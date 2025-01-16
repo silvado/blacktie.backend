@@ -1,0 +1,90 @@
+trigger:
+  tags:
+    include:
+      - '*.*.*'
+
+resources:
+  repositories:
+    - repository: templates
+      type: git
+      name: "templates-azure-devops/pipeline-templates"      
+ 
+stages:
+- stage: Scan
+  displayName: 'Scanning Vulnerabilities'
+  jobs:
+    - template: trivy/scan.yaml@templates
+      parameters:        
+        path: $(Agent.BuildDirectory)/s/src
+
+- stage: Image_dsv
+  displayName: Build_image_dsv  
+  jobs:
+    - template: docker-sem-artifacts.yaml@templates
+      parameters:
+        registry: 'Harbor'
+        repository: 'sapiconfig/services/dsv'
+        dockerfile: 'docker/Dockerfile'
+
+- stage: Helm_dsv
+  displayName: Helm_upgrade_dsv  
+  jobs:
+    - template: helm.yaml@templates
+      parameters:
+        chartpath: 'charts/helm'
+        helmvalues: 'charts/values-dsv.yaml'
+        servicealias: 'services'
+        namespace: 'sapiconfig-dsv'
+        kubecafile: 'kube-ca-file-dsv.yaml'
+        projectname: 'sapiconfig'
+
+- stage: Image_hml
+  displayName: Build_image_  
+  jobs:
+    - template: docker-sem-artifacts.yaml@templates
+      parameters:
+        registry: 'Harbor'
+        repository: 'sapiconfig/services/hml'
+        dockerfile: 'docker/Dockerfile'
+- stage: Helm_hml
+  displayName: Helm_upgrade_hml  
+  jobs:
+    - deployment:
+      displayName: aprovacao homologacao
+      environment: homologacao
+    - template: helm.yaml@templates
+      parameters:
+        chartpath: 'charts/helm'
+        helmvalues: 'charts/values-hml.yaml'
+        servicealias: 'services'
+        namespace: 'sapiconfig-hml'
+        kubecafile: 'kube-ca-file-hml.yaml'
+        projectname: 'sapiconfig'
+
+- stage: candidatar_Image_prd
+  displayName: candidatar_Image_prd  
+  jobs:
+    - deployment:
+      displayName: aprovacao producao
+      environment: producao
+    - template: candidatar-imagem.yaml@templates
+      parameters:
+        registry: 'harbor'
+        repository: 'sapiconfig/services'
+        dockerfile: 'docker/Dockerfile'
+        ambiente: 'prd'
+        
+- stage: Helm_prd
+  displayName: Helm_upgrade_prd  
+  jobs:
+    - deployment:
+      displayName: aprovacao producao
+      environment: producao
+    - template: helm.yaml@templates
+      parameters:
+        chartpath: 'charts/helm'
+        helmvalues: 'charts/values-prd.yaml'
+        servicealias: 'services'
+        namespace: 'sapiconfig-prd'
+        kubecafile: 'kube-ca-file-prd.yaml'
+        projectname: 'sapiconfig'
