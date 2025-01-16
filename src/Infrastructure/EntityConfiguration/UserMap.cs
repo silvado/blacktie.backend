@@ -24,6 +24,10 @@ namespace Infrastructure.EntityConfiguration
                 .HasColumnName("email")
                 .HasMaxLength(50);
 
+            builder.Property(e => e.IsAdmin)
+                .IsRequired()
+                .HasColumnName("is_admin");
+
             builder.Ignore(e => e.Token);
 
             new EntityGuidMap<User>().AddCommonConfiguration(builder);

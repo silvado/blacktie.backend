@@ -1,22 +1,20 @@
-﻿using Microsoft.Extensions.Options;
-using Microsoft.IdentityModel.Tokens;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
-using Application.Configuration;
+﻿using Application.Configuration;
 using Domain.Entities.Authentication.Common;
 using Domain.Exceptions;
 using Domain.Interfaces.Authentication;
+using Domain.Interfaces.Helpers;
+using Domain.Interfaces.Repository;
+using Domain.Interfaces.Service;
 using Domain.Models;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Tokens;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using System.Diagnostics.CodeAnalysis;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
-using Microsoft.Extensions.Configuration;
-using Domain.Interfaces.Service;
-using Domain.Interfaces.Helpers;
-using System.Diagnostics.CodeAnalysis;
-using Domain.Interfaces.Repository;
-using Application.Contracts.User;
-using Mapster;
 namespace Application.Services.Authentication
 {
     [ExcludeFromCodeCoverage]
@@ -29,8 +27,9 @@ namespace Application.Services.Authentication
         private readonly IControlRepository _controlRepository;
         private readonly IHashHelper _hash;
         private readonly IControlNumberHelper _control;
+        private readonly ICustomerService _customerService;
 
-        public AuthService(IOptions<AuthServiceConfig> options, IConfiguration configuration, IUserService userService, IHashHelper hash, IControlRepository controlRepository, IControlNumberHelper control)
+        public AuthService(IOptions<AuthServiceConfig> options, IConfiguration configuration, IUserService userService, IHashHelper hash, IControlRepository controlRepository, IControlNumberHelper control, ICustomerService customerService)
         {
             _client = new HttpClient();
             _authServiceConfig = options.Value;
@@ -38,7 +37,8 @@ namespace Application.Services.Authentication
             _userService = userService;
             _hash = hash;
             _controlRepository = controlRepository;
-            _control = control;         
+            _control = control;
+            _customerService = customerService;
         }
 
         public async Task<UserSegWeb?> GetUserSession(string sessionId, string codigoOrganizacao)
@@ -77,24 +77,25 @@ namespace Application.Services.Authentication
         {
             var user = ValidateUser(email, _hash.HashSHA256(password)).GetAwaiter().GetResult();
 
-            if (user is null) {
+            if (user is null)
+            {
                 return null;
             }
 
             var tokenHandler = new JwtSecurityTokenHandler();
             var key = Encoding.ASCII.GetBytes(_authServiceConfig.SecretKey!);
-           
+
             var claims = new[]
             {
                 new Claim(JwtRegisteredClaimNames.Sub, email), // Defina o sub conforme sua necessidade
                 new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
                 new Claim("Id", user.Id.ToString()),
-                new Claim("RouteAccess", "sistema/config")
+                new Claim("IsAdmin", user.IsAdmin.ToString())
             };
 
             var tokenDescriptor = new SecurityTokenDescriptor
             {
-                Subject = new ClaimsIdentity(claims),                
+                Subject = new ClaimsIdentity(claims),
                 Expires = DateTime.UtcNow.AddHours(10),
                 SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature),
                 Audience = _configuration["AuthService:Audience"],
@@ -108,11 +109,11 @@ namespace Application.Services.Authentication
             return user;
 
         }
-       
+
         public async Task<bool> ValidateControl(Guid userId, string control)
         {
             var user = await _userService.GetUserByIdAsync(userId);
-            
+
             if (user is null) { return false; }
 
             return await _controlRepository.ValidateControl(user.Id, _hash.HashSHA256(control));
@@ -121,7 +122,7 @@ namespace Application.Services.Authentication
         public async Task<bool> CreateControl(string email)
         {
             var user = await _userService.GetUserByEmailAsync(email);
-            
+
             if (user is null) { return false; }
 
             var controle = _control.GetControlNumber();
